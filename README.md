@@ -40,3 +40,57 @@ Each frame is 6912 bytes of ZX Spectrum screen memory in `SCREEN$` format (bitma
 Frames are stored sequentially with no padding.
 
 ---
+
+### Payload Type 1 – Multicolor Attribute Screens (53c/127c)
+
+This payload type is designed for multicolor modes where the bitmap pattern is constant across all cells, and only attributes change per frame. The visual illusion of additional colors is achieved through dithering patterns.
+
+#### Delay Table
+
+Contains `N` bytes, where `N` is the number of frames.
+Each byte represents the delay for the corresponding frame in units of vertical interrupts (1/50 second).
+
+#### Fill Pattern
+
+8 bytes defining the bitmap pattern for each character cell.
+This pattern is repeated for all 768 cells on screen (32×24).
+
+Common patterns:
+- **53c (checkerboard):** `AA 55 AA 55 AA 55 AA 55` — 50% pixels set, creates ~53 perceived colors
+- **127c:** `DD 77 DD 77 DD 77 DD 77` — unequal pixel distribution for ~127 perceived colors
+
+Here's a visual representation of the 8x8 cell patterns:
+
+  53c Checkerboard (AA 55 alternating):
+
+  AA = 10101010  ▓░▓░▓░▓░
+  55 = 01010101  ░▓░▓░▓░▓
+  AA = 10101010  ▓░▓░▓░▓░
+  55 = 01010101  ░▓░▓░▓░▓
+  AA = 10101010  ▓░▓░▓░▓░
+  55 = 01010101  ░▓░▓░▓░▓
+  AA = 10101010  ▓░▓░▓░▓░
+  55 = 01010101  ░▓░▓░▓░▓
+  50% ink, 50% paper → visually blends colors equally
+
+  127c Pattern (DD 77 alternating):
+
+  DD = 11011101  ▓▓░▓▓▓░▓
+  77 = 01110111  ░▓▓▓░▓▓▓
+  DD = 11011101  ▓▓░▓▓▓░▓
+  77 = 01110111  ░▓▓▓░▓▓▓
+  DD = 11011101  ▓▓░▓▓▓░▓
+  77 = 01110111  ░▓▓▓░▓▓▓
+  DD = 11011101  ▓▓░▓▓▓░▓
+  77 = 01110111  ░▓▓▓░▓▓▓
+  75% ink, 25% paper → color leans toward ink
+
+  With 127c you'd use both DD/77 (75% ink) and its inverse 22/88 (25% ink) patterns across different cells to get more color gradations. The 8-byte fill field allows any custom pattern.
+
+
+#### Frames
+
+Each frame is 768 bytes of ZX Spectrum attribute data only.
+Frames are stored sequentially with no padding.
+
+---
