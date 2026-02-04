@@ -64,25 +64,42 @@ Here's a visual representation of the 8x8 cell patterns:
   53c Checkerboard (AA 55 alternating):
 
   AA = 10101010  ▓░▓░▓░▓░
+
   55 = 01010101  ░▓░▓░▓░▓
+  
   AA = 10101010  ▓░▓░▓░▓░
+  
   55 = 01010101  ░▓░▓░▓░▓
+  
   AA = 10101010  ▓░▓░▓░▓░
+  
   55 = 01010101  ░▓░▓░▓░▓
+  
   AA = 10101010  ▓░▓░▓░▓░
+  
   55 = 01010101  ░▓░▓░▓░▓
+  
+  
   50% ink, 50% paper → visually blends colors equally
 
   127c Pattern (DD 77 alternating):
 
   DD = 11011101  ▓▓░▓▓▓░▓
+  
   77 = 01110111  ░▓▓▓░▓▓▓
+  
   DD = 11011101  ▓▓░▓▓▓░▓
+  
   77 = 01110111  ░▓▓▓░▓▓▓
+  
   DD = 11011101  ▓▓░▓▓▓░▓
+  
   77 = 01110111  ░▓▓▓░▓▓▓
+  
   DD = 11011101  ▓▓░▓▓▓░▓
+  
   77 = 01110111  ░▓▓▓░▓▓▓
+  
   75% ink, 25% paper → color leans toward ink
 
   With 127c you'd use both DD/77 (75% ink) and its inverse 22/88 (25% ink) patterns across different cells to get more color gradations. The 8-byte fill field allows any custom pattern.
