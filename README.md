@@ -170,7 +170,9 @@ Frames are stored sequentially with no padding. Each frame has the following str
     1 = ZX0
     2 = Laser Compact
     3 = RLE
-    4–31 = reserved
+    4 = Chunks 4×4
+    5 = Chunks 4×2
+    6–31 = reserved
 
   Bits 2–0 (BBB): Border color (0–7)
 ```
@@ -178,6 +180,8 @@ Frames are stored sequentially with no padding. Each frame has the following str
 **Blocks** are either raw data (when compressor = 0) or compressed data using the compressor specified in the frame header byte. The decompressor knows the output size from the FCT + region combination.
 
 For FCT = 1, bitmap and attributes are always stored as two separate blocks, allowing independent compression of each.
+
+For compressor types 4 and 5 (Chunks), see the **Chunks Compression** section below — the block format differs from stream compressors.
 
 **Delay byte** follows the last block and specifies how many vertical interrupts (HALTs) to wait before processing the next frame.
 
@@ -207,5 +211,127 @@ frame_loop:
     ; loop until frame count exhausted
     jp frame_loop
 ```
+
+---
+
+### Compressor Types 4, 5 – Chunks Compression
+
+Chunks is a lossy monochrome bitmap compression that divides each 8×8 character cell into sub-chunks and encodes each sub-chunk as a 2-bit index into a fixed 4-pattern dictionary (codebook). The codebook is static and defined by the format — it is **not** stored in the SCA file. The decoder must know the codebook in advance.
+
+Two modes are defined:
+
+| Compressor | Mode | Chunk size | Chunks/cell | Bytes/cell | Encoded size (full screen) |
+|------------|------|------------|-------------|------------|----------------------------|
+| 4          | 4×4  | 4×4 pixels | 4           | 1          | 768 bytes                  |
+| 5          | 4×2  | 4×2 pixels | 8           | 2          | 1536 bytes                 |
+
+#### Constraints
+
+- FCT **must** be 0 (bitmap only). Chunks encodes monochrome bitmap data; attributes are not stored.
+- All regions (0–5) are supported. The encoded data size is determined by the number of character rows in the region (8, 16, or 24) × 32 columns.
+- All frames must use the same compressor type (all 4×4 or all 4×2). Mixing modes within a single file is not supported.
+
+#### Standard Codebook
+
+The codebook contains 4 patterns indexed 0–3. Each pattern is a pixel bitmap of the chunk, stored MSB-first (leftmost pixel = highest bit).
+
+**4×4 mode** — 16-bit patterns (4 rows × 4 pixels, MSB = top-left):
+
+| Index | Hex      | Visual     | Description  |
+|-------|----------|------------|--------------|
+| 0     | `0x0000` | `....` `....` `....` `....` | Empty   |
+| 1     | `0xFFFF` | `####` `####` `####` `####` | Solid   |
+| 2     | `0x5F5F` | `.#.#` `####` `.#.#` `####` | Dither  |
+| 3     | `0x080A` | `....` `#...` `....` `#.#.` | Sparse  |
+
+Bit layout: bits 15–12 = row 0, bits 11–8 = row 1, bits 7–4 = row 2, bits 3–0 = row 3. Within each nibble, bit 3 = leftmost pixel, bit 0 = rightmost pixel.
+
+**4×2 mode** — 8-bit patterns (2 rows × 4 pixels):
+
+| Index | Hex    | Visual     | Description  |
+|-------|--------|------------|--------------|
+| 0     | `0x00` | `....` `....` | Empty   |
+| 1     | `0xFF` | `####` `####` | Solid   |
+| 2     | `0x5F` | `.#.#` `####` | Dither  |
+| 3     | `0x0A` | `....` `#.#.` | Sparse  |
+
+Bit layout: bits 7–4 = row 0, bits 3–0 = row 1.
+
+#### Encoded Byte Format
+
+Each encoded byte packs multiple 2-bit chunk indices, MSB-first:
+
+**4×4 mode** — 1 byte per cell, 4 chunks packed as `[TL TL | TR TR | BL BL | BR BR]`:
+
+```
+  Bits 7–6: top-left chunk index     (rows 0–3, cols 0–3)
+  Bits 5–4: top-right chunk index    (rows 0–3, cols 4–7)
+  Bits 3–2: bottom-left chunk index  (rows 4–7, cols 0–3)
+  Bits 1–0: bottom-right chunk index (rows 4–7, cols 4–7)
+```
+
+**4×2 mode** — 2 bytes per cell, 8 chunks packed into byte 0 and byte 1:
+
+```
+  Byte 0:
+    Bits 7–6: chunk at rows 0–1, cols 0–3
+    Bits 5–4: chunk at rows 0–1, cols 4–7
+    Bits 3–2: chunk at rows 2–3, cols 0–3
+    Bits 1–0: chunk at rows 2–3, cols 4–7
+  Byte 1:
+    Bits 7–6: chunk at rows 4–5, cols 0–3
+    Bits 5–4: chunk at rows 4–5, cols 4–7
+    Bits 3–2: chunk at rows 6–7, cols 0–3
+    Bits 1–0: chunk at rows 6–7, cols 4–7
+```
+
+#### Cell Traversal Order
+
+Encoded bytes are stored in screen order: 3 thirds (top, middle, bottom), each consisting of 8 character rows × 32 columns = 256 cells. Within each third, cells are stored left-to-right, top-to-bottom.
+
+For full screen: 3 × 256 = 768 cells → 768 bytes (4×4) or 1536 bytes (4×2). For partial regions, the cell count scales with the number of thirds: 256 cells per third (8 rows × 32 cols).
+
+#### Frame Layout in SCA
+
+Each chunks frame within the type 2 payload:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ [CCCCC BBB]  frame header byte                       │
+│   CCCCC = 4 (chunks 4×4) or 5 (chunks 4×2)         │
+│   BBB = border color                                 │
+│ [encoded data]  size depends on region and mode      │
+│ [delay]  wait time in HALTs (1/50 s)                 │
+└─────────────────────────────────────────────────────┘
+```
+
+No codebook, no lookup table, no length prefix — just raw encoded bytes. The data size is fixed and known from the compressor type and region:
+
+| Region | Thirds | 4×4 encoded size | 4×2 encoded size |
+|--------|--------|-------------------|-------------------|
+| 0, 1, 2 | 1    | 256 bytes          | 512 bytes          |
+| 3, 4   | 2      | 512 bytes          | 1024 bytes         |
+| 5      | 3      | 768 bytes          | 1536 bytes         |
+
+#### Lookup Table (optional optimization)
+
+A depacker can use a precomputed lookup table (LUT) to convert a pair of 2-bit indices into a full 8-pixel screen byte in one step, avoiding per-chunk codebook lookups at runtime. The LUT is derived deterministically from the codebook and is not stored in the SCA file.
+
+**4×4 LUT** — 64 bytes (16 index pairs × 4 rows):
+
+For each pair of adjacent chunks (left index L, right index R), the LUT stores 4 bytes at offset `(L×4 + R) × 4`:
+
+```
+  byte 0: (codebook[L] row 0 nibble << 4) | (codebook[R] row 0 nibble)
+  byte 1: (codebook[L] row 1 nibble << 4) | (codebook[R] row 1 nibble)
+  byte 2: (codebook[L] row 2 nibble << 4) | (codebook[R] row 2 nibble)
+  byte 3: (codebook[L] row 3 nibble << 4) | (codebook[R] row 3 nibble)
+```
+
+Each LUT byte is a complete 8-pixel screen byte: left chunk's nibble in bits 7–4, right chunk's nibble in bits 3–0.
+
+**4×2 LUT** — 32 bytes (16 index pairs × 2 rows):
+
+Same structure but 2 bytes per entry at offset `(L×4 + R) × 2`.
 
 ---
